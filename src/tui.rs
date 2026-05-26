@@ -20,7 +20,7 @@ use crate::score::ScoreResult;
 use crate::session::{discover_all_sessions, Session};
 
 const PAGE_SIZE: usize = 15;
-const ANIMATION_TOTAL_FRAMES: usize = 50; // 50 × 50ms = 2.5 s
+const ANIMATION_TOTAL_FRAMES: usize = 20; // 20 × 50ms = 1 s
 const ANIMATION_POLL_MS: u64 = 50;
 
 #[derive(Clone)]
@@ -376,8 +376,9 @@ async fn trigger_score(
 fn render(f: &mut Frame, state: &mut AppState) {
     let area = f.area();
 
-    if let Some(ref anim) = state.animation {
-        render_animation(f, area, anim);
+    if let Some(anim) = state.animation.take() {
+        render_animation(f, area, state, &anim);
+        state.animation = Some(anim); // put it back
         return;
     }
 
@@ -388,48 +389,27 @@ fn render(f: &mut Frame, state: &mut AppState) {
     }
 }
 
-fn render_animation(f: &mut Frame, area: Rect, anim: &AnimationState) {
-    let w = area.width as usize;
-    let h = area.height as usize;
-
-    // Build a grid: Vec<Vec<(char, Color)>>
-    let mut grid: Vec<Vec<(char, Color)>> = vec![vec![(' ', Color::Black); w]; h];
-
-    for p in &anim.particles {
-        let col = (p.x * w as f64) as isize;
-        let row = (p.y * h as f64) as isize;
-        if col >= 0 && col < w as isize && row >= 0 && row < h as isize {
-            grid[row as usize][col as usize] = (p.ch, p.color);
-        }
+fn render_animation(f: &mut Frame, area: Rect, state: &mut AppState, anim: &AnimationState) {
+    // 1. Render the underlying TUI first (so background is visible)
+    if state.detail_view {
+        render_detail(f, area, state);
+    } else {
+        render_list(f, area, state);
     }
 
-    // Progress indicator
-    let progress = anim.frame as f64 / ANIMATION_TOTAL_FRAMES as f64;
-    let bar_w = (w.saturating_sub(4) as f64 * progress) as usize;
-    let progress_label = if anim.is_fireworks { "🎆 " } else { "🌧  " };
+    // 2. Overlay only the particle characters on top
+    let w = area.width as f64;
+    let h = area.height as f64;
+    let buf = f.buffer_mut();
 
-    let lines: Vec<Line> = grid
-        .iter()
-        .enumerate()
-        .map(|(row_idx, row)| {
-            if row_idx == h.saturating_sub(2) {
-                // Progress bar row
-                let bar = "█".repeat(bar_w) + &"░".repeat(w.saturating_sub(4 + bar_w));
-                Line::from(format!("{progress_label}[{bar}]"))
-            } else {
-                let spans: Vec<Span> = row
-                    .iter()
-                    .map(|(ch, color)| Span::styled(ch.to_string(), Style::default().fg(*color)))
-                    .collect();
-                Line::from(spans)
-            }
-        })
-        .collect();
-
-    let bg_style = Style::default().bg(Color::Black);
-
-    let widget = Paragraph::new(lines).style(bg_style);
-    f.render_widget(widget, area);
+    for p in &anim.particles {
+        let col = (p.x * w) as u16;
+        let row = (p.y * h) as u16;
+        if col < area.width && row < area.height {
+            let cell = buf[(area.x + col, area.y + row)].set_char(p.ch);
+            cell.set_fg(p.color);
+        }
+    }
 }
 
 fn render_list(f: &mut Frame, area: Rect, state: &mut AppState) {
