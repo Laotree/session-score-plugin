@@ -18,6 +18,42 @@ pub struct Session {
 }
 
 impl Session {
+    /// Build a Session directly from the absolute path to a `.jsonl` transcript.
+    /// Used by the Stop hook fast-path: Claude Code hands us `transcript_path`
+    /// in the stdin payload, so there is no need to scan all projects.
+    pub fn from_transcript_path(path_str: &str) -> anyhow::Result<Self> {
+        let jsonl_path = PathBuf::from(path_str);
+        if !jsonl_path.exists() {
+            anyhow::bail!("Transcript not found: {path_str}");
+        }
+        let project_dir = jsonl_path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("No parent dir for {path_str}"))?
+            .to_path_buf();
+        let project_slug = project_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+        let session_id = jsonl_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+        let score_path = jsonl_path.with_extension("score.json");
+        let (started_at, message_count, cwd) = parse_session_meta(&jsonl_path);
+        Ok(Self {
+            session_id,
+            project_slug,
+            project_dir,
+            jsonl_path,
+            score_path,
+            started_at,
+            message_count,
+            cwd,
+        })
+    }
+
     /// Load the existing score for this session, if any
     pub fn load_score(&self) -> Option<crate::score::ScoreResult> {
         let content = std::fs::read_to_string(&self.score_path).ok()?;
