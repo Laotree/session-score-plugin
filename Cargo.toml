@@ -2,7 +2,7 @@
 name = "session-score-plugin"
 version = "0.1.0"
 edition = "2021"
-description = "TODO: describe your project"
+description = "Claude Code plugin that scores sessions and provides an interactive TUI browser"
 license = "MIT"
 
 [[bin]]
@@ -10,3 +10,31 @@ name = "session-score-plugin"
 path = "src/main.rs"
 
 [dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# HTTP client for Claude API
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# JSON
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# TUI
+ratatui = "0.29"
+crossterm = "0.28"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Error handling
+anyhow = "1"
+
+# Home directory
+dirs = "5"
+
+[dev-dependencies]
+tempfile = "3"
