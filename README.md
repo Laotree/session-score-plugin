@@ -1,6 +1,8 @@
 # session-score-plugin
 
-> A Claude Code plugin that scores your sessions using the Claude API and lets you browse them in an interactive TUI. 🦀 Rust
+> Score, analyse, and improve your Claude Code sessions. Get structured feedback after every session so you can identify inefficient habits, track quality over time, and get more out of every interaction. 🦀 Rust
+
+Every Claude Code session leaves a transcript. This plugin turns that transcript into **actionable feedback** — a 1–100 score across seven dimensions that tell you where a session went well and where it didn't. Use the scores to spot patterns: are you prompting ambiguously? Triggering too many correction loops? Skipping tests? The browser lets you compare sessions side-by-side so improvement becomes deliberate, not accidental.
 
 ## Features
 
