@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Installed by: make hooks
+set -euo pipefail
+
+protected="^(main|master)$"
+branch="$(git symbolic-ref --short HEAD 2>/dev/null || echo "")"
+
+if [[ "$branch" =~ $protected ]]; then
+    echo ""
+    echo "  Committing directly to '$branch' is not allowed."
+    echo "  Create a feature branch first:  git checkout -b feature/<name>"
+    echo ""
+    exit 1
+fi
+
+exit 0
