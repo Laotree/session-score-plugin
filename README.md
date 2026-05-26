@@ -22,11 +22,26 @@ Every Claude Code session leaves a transcript. This plugin turns that transcript
 
 ## Installation
 
+### Homebrew (recommended)
+
 ```bash
-make install
+brew tap Laotree/tap
+brew install session-score-plugin
 ```
 
-This builds the release binary, copies it to `~/.local/bin/`, and registers the `Stop` hook in `~/.claude/settings.json` so every session is auto-scored when it ends.
+Then register the Stop hook so every session is auto-scored when it ends:
+
+```bash
+session-score-plugin install
+```
+
+### Build from source
+
+```bash
+git clone https://github.com/Laotree/session-score-plugin
+cd session-score-plugin
+make install   # builds, copies binary to ~/.local/bin/, and registers the Stop hook
+```
 
 ## Usage
 
