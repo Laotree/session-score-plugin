@@ -47,7 +47,7 @@ impl AppState {
             list_state,
             page: 0,
             total_pages,
-            status: format!("↑/↓ navigate  Enter: score/detail  n/p: page  q: quit"),
+            status: "↑/↓ navigate  Enter: score/detail  n/p: page  q: quit".to_string(),
             detail_view: false,
             scoring: false,
         }
@@ -270,7 +270,7 @@ fn render_list(f: &mut Frame, area: Rect, state: &mut AppState) {
             let project = session.project_slug
                 .trim_start_matches("-Users-")
                 .split('-')
-                .last()
+                .next_back()
                 .unwrap_or(&session.project_slug);
 
             let (score_str, score_style) = match score {
