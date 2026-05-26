@@ -4,7 +4,8 @@
 
 ## Features
 
-- **Auto-scoring on session end** — a `Stop` hook fires when Claude Code finishes, reads the session transcript, and calls the Claude API to score it
+- **Auto-scoring on session end** — a `Stop` hook fires when Claude Code finishes; it reads the session ID from the hook payload, fetches the transcript, and scores it
+- **Heuristic fallback** — if `ANTHROPIC_API_KEY` is not set, a built-in rule-based scorer runs instead (no API key required)
 - **1–100 score** across four AI-evaluated dimensions:
   - 🔒 **Security** (0–25) — dangerous commands, credential exposure, risky patterns
   - ⚡ **Effectivity** (0–25) — goal completion, correction loops, clarity
@@ -58,10 +59,18 @@ This writes a `Stop` hook into `~/.claude/settings.json` that auto-scores each s
 | b / Esc | Back from detail view |
 | q | Quit |
 
-### Auto-score a specific session
+### Auto-score a session
+
+Score a specific session by ID:
 
 ```bash
 ./target/release/session-score-plugin auto-score --session-id <uuid>
+```
+
+Omit `--session-id` to score the most recently active session:
+
+```bash
+./target/release/session-score-plugin auto-score
 ```
 
 ### Score grades
@@ -83,9 +92,11 @@ Sessions are read from `~/.claude/projects/`. Each project folder contains `.jso
 
 ```bash
 make build    # debug build
+make release  # release build
 make test     # run tests
 make lint     # clippy
 make fmt      # format
+make hooks    # install pre-commit + pre-push branch guards into .git/hooks/
 ```
 
 ## Team

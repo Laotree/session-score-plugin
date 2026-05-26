@@ -11,12 +11,23 @@ make test        # run tests
 make lint        # clippy
 make fmt         # format source
 make clean       # remove build artifacts
-make hooks       # install git pre-push hook
+make hooks       # install pre-commit + pre-push branch guards
 ```
 
 ## Architecture
 
-Rust binary. Entry point `src/main.rs`. Replace with whatever your project needs.
+Rust binary. Entry point `src/main.rs`.
+
+| Module | Role |
+|--------|------|
+| `main.rs` | CLI (`browse`, `auto-score`, `install`) and Stop-hook entry point |
+| `session.rs` | Session discovery, JSONL parsing, transcript building |
+| `score.rs` | Claude API scoring — sends transcript, parses structured JSON result |
+| `heuristic.rs` | Rule-based fallback scorer — works without an API key |
+| `tui.rs` | Interactive session browser (ratatui) |
+| `animation.rs` | Animated count-up score reveal |
+
+**Stop hook flow:** Claude Code calls `auto-score` on session end, passing a JSON payload via stdin (`session_id`, `transcript_path`, `cwd`). The binary reads that, finds the session, scores it, and writes a `.score.json` sidecar.
 
 ## Agents
 
