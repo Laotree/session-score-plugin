@@ -1,4 +1,5 @@
 mod animation;
+mod heuristic;
 mod score;
 mod session;
 mod tui;
