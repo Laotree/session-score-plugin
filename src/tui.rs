@@ -360,6 +360,9 @@ pub async fn run_browser() -> Result<()> {
             if anim.done() {
                 state.animation = None;
                 state.detail_view = true;
+                // Flush any events that slipped through during animation so the
+                // first keypress after the animation is intentional.
+                drain_events();
             }
         }
 
@@ -456,7 +459,21 @@ async fn trigger_score(
         }
     }
     state.scoring = false;
+
+    // Drain any key events that accumulated while the async scoring call blocked
+    // the event loop.  Without this, rapid Enter presses queue up and each one
+    // re-triggers scoring after we return, corrupting TUI state.
+    drain_events();
+
     Ok(())
+}
+
+/// Discard all pending terminal events.  Called after long-blocking operations
+/// (scoring, animation) to prevent stale key presses from being acted on.
+fn drain_events() {
+    while event::poll(std::time::Duration::ZERO).unwrap_or(false) {
+        let _ = event::read();
+    }
 }
 
 // ── Rendering ─────────────────────────────────────────────────────────────────
