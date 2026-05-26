@@ -33,108 +33,190 @@ struct Particle {
     dy: f64,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum AnimationKind {
+    GrandFireworks, // S 90-100
+    Fireworks,      // A 80-89
+    Confetti,       // B 70-79
+    Snow,           // C 60-69
+    Bubbles,        // D 50-59
+    ShootingStars,  // F 0-49
+}
+
+impl AnimationKind {
+    fn from_score(score: u8) -> Self {
+        match score {
+            90..=100 => Self::GrandFireworks,
+            80..=89 => Self::Fireworks,
+            70..=79 => Self::Confetti,
+            60..=69 => Self::Snow,
+            50..=59 => Self::Bubbles,
+            _ => Self::ShootingStars,
+        }
+    }
+}
+
 struct AnimationState {
     frame: usize,
     particles: Vec<Particle>,
-    is_fireworks: bool, // true = fireworks, false = rain
+    kind: AnimationKind,
+}
+
+fn lcg(seed: u64, i: u64) -> u64 {
+    seed.wrapping_mul(6364136223846793005)
+        .wrapping_add(i.wrapping_mul(1442695040888963407).wrapping_add(1))
+}
+
+fn build_fireworks(score: u8, width: u16, height: u16, centers: usize, per_center: usize) -> Vec<Particle> {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let fw_chars = ['✦', '*', '·', '°', '+', '×', '✶', '✸'];
+    let fw_colors = [
+        Color::Red,
+        Color::Yellow,
+        Color::Green,
+        Color::Cyan,
+        Color::Magenta,
+        Color::LightYellow,
+        Color::LightGreen,
+        Color::LightCyan,
+    ];
+
+    let mut hasher = DefaultHasher::new();
+    score.hash(&mut hasher);
+    let seed = hasher.finish();
+
+    let w = width.max(20) as f64;
+    let h = height.max(10) as f64;
+
+    let burst_centers: Vec<(f64, f64)> = (0..centers)
+        .map(|i| {
+            let s = lcg(seed, i as u64);
+            let cx = 0.15 + (s & 0xFF) as f64 / 255.0 * 0.70;
+            let cy = 0.15 + ((s >> 8) & 0xFF) as f64 / 255.0 * 0.70;
+            (cx, cy)
+        })
+        .collect();
+
+    let mut particles = Vec::new();
+    for (ci, &(cx, cy)) in burst_centers.iter().enumerate() {
+        for j in 0..per_center {
+            let s = lcg(seed, (ci * 100 + j) as u64);
+            let angle = (s & 0xFF) as f64 / 255.0 * std::f64::consts::TAU;
+            let speed = 0.005 + ((s >> 8) & 0x3F) as f64 / 0x3F as f64 * 0.015;
+            particles.push(Particle {
+                x: cx,
+                y: cy,
+                ch: fw_chars[(s >> 16) as usize % fw_chars.len()],
+                color: fw_colors[(s >> 24) as usize % fw_colors.len()],
+                dx: angle.cos() * speed,
+                dy: angle.sin() * speed * (w / h) * 0.5,
+            });
+        }
+    }
+    particles
+}
+
+fn build_confetti(width: u16) -> Vec<Particle> {
+    let chars = ['*', '·', '✦', '°', '+', '×'];
+    let colors = [
+        Color::Red,
+        Color::Yellow,
+        Color::Magenta,
+        Color::Cyan,
+        Color::Green,
+        Color::LightYellow,
+    ];
+    let n = (width as usize / 3).max(10);
+    (0..n)
+        .map(|i| {
+            let s = lcg(0xCAFEBABE, i as u64);
+            Particle {
+                x: (s & 0xFF) as f64 / 255.0,
+                y: -(((s >> 8) & 0x3F) as f64 / 0x3F as f64 * 0.5),
+                ch: chars[(s >> 16) as usize % chars.len()],
+                color: colors[(s >> 24) as usize % colors.len()],
+                dx: ((s >> 32) & 0xFF) as f64 / 255.0 * 0.01 - 0.005,
+                dy: 0.03 + ((s >> 40) & 0x3F) as f64 / 0x3F as f64 * 0.02,
+            }
+        })
+        .collect()
+}
+
+fn build_snow(width: u16) -> Vec<Particle> {
+    let chars = ['·', '∘', '°', '❄'];
+    let colors = [Color::White, Color::LightBlue, Color::Gray];
+    let n = (width as usize / 3).max(10);
+    (0..n)
+        .map(|i| {
+            let s = lcg(0xA1B2C3D4u64, i as u64);
+            Particle {
+                x: (s & 0xFF) as f64 / 255.0,
+                y: -(((s >> 8) & 0x3F) as f64 / 0x3F as f64 * 0.8),
+                ch: chars[(s >> 16) as usize % chars.len()],
+                color: colors[(s >> 24) as usize % colors.len()],
+                dx: ((s >> 32) & 0xFF) as f64 / 255.0 * 0.006 - 0.003,
+                dy: 0.012 + ((s >> 40) & 0x3F) as f64 / 0x3F as f64 * 0.01,
+            }
+        })
+        .collect()
+}
+
+fn build_bubbles(width: u16) -> Vec<Particle> {
+    let chars = ['○', '◦', '·', '∘'];
+    let colors = [Color::Cyan, Color::Blue, Color::LightGreen, Color::LightBlue];
+    let n = (width as usize / 4).max(8);
+    (0..n)
+        .map(|i| {
+            let s = lcg(0xF0E1D2C3u64, i as u64);
+            Particle {
+                x: (s & 0xFF) as f64 / 255.0,
+                y: 1.0 + ((s >> 8) & 0x3F) as f64 / 0x3F as f64 * 0.5,
+                ch: chars[(s >> 16) as usize % chars.len()],
+                color: colors[(s >> 24) as usize % colors.len()],
+                dx: ((s >> 32) & 0xFF) as f64 / 255.0 * 0.008 - 0.004,
+                dy: -(0.025 + ((s >> 40) & 0x3F) as f64 / 0x3F as f64 * 0.02),
+            }
+        })
+        .collect()
+}
+
+fn build_shooting_stars(width: u16, height: u16) -> Vec<Particle> {
+    let chars = ['✦', '·', '*', '—'];
+    let colors = [Color::White, Color::Yellow, Color::LightCyan];
+    let n = 25usize;
+    let _w = width as f64;
+    let _h = height as f64;
+    (0..n)
+        .map(|i| {
+            let s = lcg(0x12345678u64, i as u64);
+            Particle {
+                x: (s & 0xFF) as f64 / 255.0,
+                y: ((s >> 8) & 0xFF) as f64 / 255.0,
+                ch: chars[(s >> 16) as usize % chars.len()],
+                color: colors[(s >> 24) as usize % colors.len()],
+                dx: 0.04 + ((s >> 32) & 0x0F) as f64 / 0x0F as f64 * 0.02,
+                dy: (0.04 + ((s >> 32) & 0x0F) as f64 / 0x0F as f64 * 0.02)
+                    * (_w / _h)
+                    * 0.5,
+            }
+        })
+        .collect()
 }
 
 impl AnimationState {
-    fn new_fireworks(score: u8, width: u16, height: u16) -> Self {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let fw_chars = ['✦', '*', '·', '°', '+', '×', '✶', '✸'];
-        let fw_colors = [
-            Color::Red,
-            Color::Yellow,
-            Color::Green,
-            Color::Cyan,
-            Color::Magenta,
-            Color::LightYellow,
-            Color::LightGreen,
-            Color::LightCyan,
-        ];
-
-        // Use score as seed for deterministic-ish but varied layout
-        let mut hasher = DefaultHasher::new();
-        score.hash(&mut hasher);
-        let seed = hasher.finish();
-
-        let w = width.max(20) as f64;
-        let h = height.max(10) as f64;
-
-        // 5 burst centers
-        let centers: Vec<(f64, f64)> = (0..5)
-            .map(|i| {
-                let s = seed
-                    .wrapping_mul(6364136223846793005)
-                    .wrapping_add(i as u64 * 1442695040888963407);
-                let cx = 0.15 + (s & 0xFF) as f64 / 255.0 * 0.70;
-                let cy = 0.15 + ((s >> 8) & 0xFF) as f64 / 255.0 * 0.70;
-                (cx, cy)
-            })
-            .collect();
-
-        let mut particles = Vec::new();
-        for (ci, &(cx, cy)) in centers.iter().enumerate() {
-            for j in 0..20usize {
-                let s = seed
-                    .wrapping_mul(6364136223846793005)
-                    .wrapping_add((ci * 100 + j) as u64 * 1442695040888963407);
-
-                let angle = (s & 0xFF) as f64 / 255.0 * std::f64::consts::TAU;
-                let speed = 0.005 + ((s >> 8) & 0x3F) as f64 / 0x3F as f64 * 0.015;
-                // Compensate for terminal character aspect ratio (chars are ~2× taller than wide)
-                let dx = angle.cos() * speed;
-                let dy = angle.sin() * speed * (w / h) * 0.5;
-
-                particles.push(Particle {
-                    x: cx,
-                    y: cy,
-                    ch: fw_chars[(s >> 16) as usize % fw_chars.len()],
-                    color: fw_colors[(s >> 24) as usize % fw_colors.len()],
-                    dx,
-                    dy,
-                });
-            }
-        }
-
-        AnimationState {
-            frame: 0,
-            particles,
-            is_fireworks: true,
-        }
-    }
-
-    fn new_rain(width: u16, _height: u16) -> Self {
-        let rain_chars = ['│', '|', '\'', '.', '╎'];
-        let rain_colors = [Color::Blue, Color::Cyan, Color::DarkGray, Color::LightBlue];
-
-        let w = width.max(20) as usize;
-        // One raindrop column per 2 terminal columns
-        let n = w / 2;
-
-        let particles: Vec<Particle> = (0..n)
-            .map(|i| {
-                // simple LCG per column
-                let s = (i as u64).wrapping_mul(2654435761).wrapping_add(0xDEADBEEF);
-                Particle {
-                    x: i as f64 / n as f64,
-                    y: -((s & 0xFF) as f64 / 255.0), // start above screen
-                    ch: rain_chars[(s >> 8) as usize % rain_chars.len()],
-                    color: rain_colors[(s >> 16) as usize % rain_colors.len()],
-                    dx: 0.0,
-                    dy: 0.008 + ((s >> 24) & 0x3F) as f64 / 0x3F as f64 * 0.012,
-                }
-            })
-            .collect();
-
-        AnimationState {
-            frame: 0,
-            particles,
-            is_fireworks: false,
-        }
+    fn new(score: u8, width: u16, height: u16) -> Self {
+        let kind = AnimationKind::from_score(score);
+        let particles = match kind {
+            AnimationKind::GrandFireworks => build_fireworks(score, width, height, 8, 30),
+            AnimationKind::Fireworks => build_fireworks(score, width, height, 5, 20),
+            AnimationKind::Confetti => build_confetti(width),
+            AnimationKind::Snow => build_snow(width),
+            AnimationKind::Bubbles => build_bubbles(width),
+            AnimationKind::ShootingStars => build_shooting_stars(width, height),
+        };
+        AnimationState { frame: 0, particles, kind }
     }
 
     fn advance(&mut self) {
@@ -142,9 +224,19 @@ impl AnimationState {
         for p in &mut self.particles {
             p.x += p.dx;
             p.y += p.dy;
-            // Rain: wrap around when fallen off bottom
-            if !self.is_fireworks && p.y > 1.0 {
-                p.y = -0.05;
+            // Wrap-around for falling/rising particles
+            match self.kind {
+                AnimationKind::Confetti | AnimationKind::Snow if p.y > 1.0 => {
+                    p.y = -0.05;
+                }
+                AnimationKind::Bubbles if p.y < -0.05 => {
+                    p.y = 1.05;
+                }
+                AnimationKind::ShootingStars if p.x > 1.1 || p.y > 1.1 => {
+                    p.x -= 1.0;
+                    p.y -= 0.5;
+                }
+                _ => {} // fireworks don't wrap, or condition not met
             }
         }
     }
@@ -354,11 +446,7 @@ async fn trigger_score(
             );
             // Start animation before entering detail view
             let area = terminal.size()?;
-            let anim = if result.total_score >= 70 {
-                AnimationState::new_fireworks(result.total_score, area.width, area.height)
-            } else {
-                AnimationState::new_rain(area.width, area.height)
-            };
+            let anim = AnimationState::new(result.total_score, area.width, area.height);
             state.animation = Some(anim);
             state.scores[idx] = Some(result);
             // detail_view will be set true when animation finishes
