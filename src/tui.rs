@@ -604,6 +604,30 @@ fn render_list(f: &mut Frame, area: Rect, state: &mut AppState) {
                 None => ("  —/100".to_string(), Style::default().fg(Color::DarkGray)),
             };
 
+            // Scoring time: "MM-DD HH:MM" when scored, fixed-width blank otherwise
+            let scored_at_str = match score {
+                Some(s) => {
+                    let local: chrono::DateTime<Local> = s.scored_at.into();
+                    local.format("%m-%d %H:%M").to_string()
+                }
+                None => "           ".to_string(), // same width as "MM-DD HH:MM"
+            };
+
+            // Brief: first 28 chars of summary (Unicode-safe), empty when unscored
+            const BRIEF_MAX: usize = 28;
+            let brief_str: String = match score {
+                Some(s) => {
+                    let mut chars = s.summary.chars();
+                    let truncated: String = chars.by_ref().take(BRIEF_MAX).collect();
+                    if chars.next().is_some() {
+                        format!("{truncated}…")
+                    } else {
+                        truncated
+                    }
+                }
+                None => String::new(),
+            };
+
             let msgs = format!("{:>4}msg", session.message_count);
 
             let line = Line::from(vec![
@@ -615,6 +639,10 @@ fn render_list(f: &mut Frame, area: Rect, state: &mut AppState) {
                 ),
                 Span::styled(format!("{msgs} "), Style::default().fg(Color::DarkGray)),
                 Span::styled(score_str, score_style.bold()),
+                Span::styled(" · ", Style::default().fg(Color::DarkGray)),
+                Span::styled(scored_at_str, Style::default().fg(Color::DarkGray)),
+                Span::styled("  ", Style::default()),
+                Span::styled(brief_str, Style::default().fg(Color::Gray)),
             ]);
 
             ListItem::new(line)
