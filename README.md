@@ -6,9 +6,9 @@ Every Claude Code session leaves a transcript. This plugin turns that transcript
 
 ## Features
 
-- **Auto-scoring on session end** — a `Stop` hook fires when Claude Code finishes; it reads the session ID from the hook payload, fetches the transcript, and scores it
-- **Heuristic fallback** — if `ANTHROPIC_API_KEY` is not set, a built-in rule-based scorer runs instead (no API key required)
-- **1–100 score** across seven AI-evaluated dimensions:
+- **Auto-scoring on session end** — a `Stop` hook fires when Claude Code finishes; it reads the session transcript and scores it automatically
+- **Heuristic scorer** — a built-in rule-based scorer analyses your transcript without any external service
+- **1–100 score** across seven dimensions:
   - 🔒 **Security** (0–15) — dangerous commands, credential exposure, risky patterns
   - ⚡ **Effectivity** (0–15) — goal completion, correction loops, human intervention rate, self-correction
   - 🏗 **Solidity** (0–10) — tests, code quality, PR discipline
@@ -16,9 +16,9 @@ Every Claude Code session leaves a transcript. This plugin turns that transcript
   - 🗺 **Planning Quality** (0–15) — clarification before action, structured approach, plan mode usage
   - 🔄 **Recovery Ability** (0–15) — error handling, failure recovery, adaptive strategy
   - 🎯 **Hallucination Rate** (0–15) — factual accuracy, grounded assertions, no confabulation
-- **Animated count-up reveal** — score dramatically counts up from 1 to the final value in terminal
+- **Animated score reveal** — score counts up from 1 to the final value with grade-based particle effects
 - **Sidecar storage** — scores saved as `<session-id>.score.json` next to each JSONL file
-- **Interactive TUI browser** — arrow-key navigable, paginated session list with live scores
+- **Interactive TUI browser** — arrow-key navigable, paginated session list with live scores and detail view
 
 ## Installation
 
@@ -28,21 +28,28 @@ make install
 
 This builds the release binary, copies it to `~/.local/bin/`, and registers the `Stop` hook in `~/.claude/settings.json` so every session is auto-scored when it ends.
 
-
 ## Usage
 
 ### Browse sessions (TUI)
 
 ```bash
-./target/release/session-score-plugin browse
+session-score-plugin browse
 ```
+
+Or just run with no arguments (browse is the default):
+
+```bash
+session-score-plugin
+```
+
+#### Key bindings
 
 | Key | Action |
 |-----|--------|
 | ↑/↓ or j/k | Navigate sessions |
-| Enter | Score unscored session, or open detail view |
+| Enter | Score an unscored session / open detail view |
 | d | Open detail view for selected session |
-| r | Re-score selected session (even if already scored) |
+| r | Re-score selected session (list view or detail view) |
 | n / p | Next / previous page |
 | b / Esc | Back from detail view |
 | q | Quit |
@@ -52,13 +59,13 @@ This builds the release binary, copies it to `~/.local/bin/`, and registers the 
 Score a specific session by ID:
 
 ```bash
-./target/release/session-score-plugin auto-score --session-id <uuid>
+session-score-plugin auto-score --session-id <uuid>
 ```
 
 Omit `--session-id` to score the most recently active session:
 
 ```bash
-./target/release/session-score-plugin auto-score
+session-score-plugin auto-score
 ```
 
 ### Score grades
@@ -86,11 +93,3 @@ make lint     # clippy
 make fmt      # format
 make hooks    # install pre-commit + pre-push branch guards into .git/hooks/
 ```
-
-## Team
-
-| Agent | Role |
-|-------|------|
-| **Amy** | Project Manager — clarifies scope before any code is written |
-| **Bob** | Engineer — implements what Amy scoped |
-| **Con** | Reviewer — reviews, approves, and merges |
