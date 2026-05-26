@@ -170,7 +170,6 @@ pub async fn score_session(session: &Session) -> Result<ScoreResult> {
     let api_key = match std::env::var("ANTHROPIC_API_KEY") {
         Ok(k) if !k.is_empty() => k,
         _ => {
-            eprintln!("ℹ️  No ANTHROPIC_API_KEY — using heuristic scorer (set the key for AI scoring)");
             return crate::heuristic::score_heuristic(session);
         }
     };

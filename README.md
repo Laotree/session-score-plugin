@@ -28,13 +28,6 @@ make install
 
 This builds the release binary, copies it to `~/.local/bin/`, and registers the `Stop` hook in `~/.claude/settings.json` so every session is auto-scored when it ends.
 
-Optionally, set your Anthropic API key for AI-powered scoring (the heuristic fallback works without one):
-
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-```
-
-Add this to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.) to persist it.
 
 ## Usage
 
