@@ -387,8 +387,13 @@ pub async fn run_browser() -> Result<()> {
                         state.detail_view = false;
                     }
                     KeyCode::Enter => {
-                        // Trigger scoring from detail view
-                        trigger_score(&mut terminal, &mut state).await?;
+                        // Only score when there is no result yet.  If a score
+                        // already exists, Enter is a no-op so that rapid/repeated
+                        // presses never re-trigger the API call and corrupt TUI
+                        // state.  Use 'r' from the list view to force a re-score.
+                        if state.selected_score().is_none() {
+                            trigger_score(&mut terminal, &mut state).await?;
+                        }
                     }
                     _ => {}
                 }
@@ -643,7 +648,7 @@ fn render_detail(f: &mut Frame, area: Rect, state: &AppState) {
             Style::default().bold().fg(Color::Cyan),
         ),
         Span::styled(
-            " (b/Esc: back, Enter: re-score) ",
+            " (b/Esc: back  Enter: score if unscored  r: re-score) ",
             Style::default().fg(Color::DarkGray),
         ),
     ]))
