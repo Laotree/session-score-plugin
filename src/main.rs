@@ -21,19 +21,45 @@ enum Command {
     Browse,
 
     /// Auto-score a session (used by the Claude Code Stop hook).
-    /// Reads CLAUDE_SESSION_ID and CLAUDE_PROJECT_DIR from env, or accepts args.
+    /// When invoked by the Stop hook, reads session_id + transcript_path from
+    /// the JSON payload on stdin. Falls back to --session-id arg, then to the
+    /// most recently modified session.
     AutoScore {
-        /// Session ID to score (overrides env var)
+        /// Session ID to score (overrides stdin / env)
         #[arg(long)]
         session_id: Option<String>,
 
-        /// Project directory slug (overrides env var)
+        /// Project directory slug (for disambiguation)
         #[arg(long)]
         project_dir: Option<String>,
     },
 
     /// Install the Stop hook into Claude Code settings
     Install,
+}
+
+/// JSON payload that Claude Code sends to Stop hooks via stdin.
+#[derive(serde::Deserialize, Default)]
+struct HookPayload {
+    session_id: Option<String>,
+    transcript_path: Option<String>,
+    #[allow(dead_code)]
+    cwd: Option<String>,
+}
+
+/// Read the Stop hook JSON payload from stdin.
+/// Returns an empty payload if stdin is a terminal (manual invocation) or
+/// if the data cannot be parsed.
+fn read_hook_stdin() -> HookPayload {
+    use std::io::{IsTerminal, Read};
+    if std::io::stdin().is_terminal() {
+        return HookPayload::default();
+    }
+    let mut buf = String::new();
+    if std::io::stdin().read_to_string(&mut buf).is_err() {
+        return HookPayload::default();
+    }
+    serde_json::from_str(&buf).unwrap_or_default()
 }
 
 #[tokio::main]
@@ -48,13 +74,12 @@ async fn main() -> Result<()> {
             session_id,
             project_dir,
         } => {
-            let session_id = session_id
-                .or_else(|| std::env::var("CLAUDE_SESSION_ID").ok());
+            // Priority: stdin hook payload → CLI arg → latest-session fallback
+            let hook = read_hook_stdin();
+            let session_id = session_id.or(hook.session_id);
+            let transcript_path = hook.transcript_path;
 
-            let project_dir = project_dir
-                .or_else(|| std::env::var("CLAUDE_PROJECT_DIR").ok());
-
-            auto_score(session_id, project_dir).await?;
+            auto_score(session_id, project_dir, transcript_path).await?;
         }
         Command::Install => {
             install_hook()?;
@@ -64,26 +89,37 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn auto_score(session_id: Option<String>, project_dir: Option<String>) -> Result<()> {
-    use crate::session::{find_session, find_latest_session};
+async fn auto_score(
+    session_id: Option<String>,
+    project_dir: Option<String>,
+    transcript_path: Option<String>,
+) -> Result<()> {
+    use crate::session::{find_session, find_latest_session, Session};
     use crate::score::score_session;
     use crate::animation::animate_score_reveal;
 
     println!("\n🎯 Session Score Plugin — scoring your session…\n");
 
-    let session = match session_id {
-        Some(id) => find_session(&id, project_dir.as_deref())?,
-        None => {
-            let s = find_latest_session()?;
-            eprintln!("ℹ️  No session ID — scoring most recent: {} ({})", s.session_id, s.project_slug);
-            s
+    // Fast path: hook gave us the transcript path directly — no scanning needed.
+    // Slower paths: find by session ID, or scan for the most recent session.
+    let session: Session = if let Some(ref tp) = transcript_path {
+        Session::from_transcript_path(tp)?
+    } else {
+        match session_id {
+            Some(ref id) => find_session(id, project_dir.as_deref())?,
+            None => {
+                let s = find_latest_session()?;
+                eprintln!(
+                    "ℹ️  No session ID — scoring most recent: {} ({})",
+                    s.session_id, s.project_slug
+                );
+                s
+            }
         }
     };
+
     let result = score_session(&session).await?;
-
     animate_score_reveal(&result).await?;
-
-    // Persist score sidecar
     result.save(&session.jsonl_path)?;
 
     Ok(())
