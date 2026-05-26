@@ -12,7 +12,7 @@ use clap::{Parser, Subcommand};
 #[command(about = "Claude Code plugin: score and browse your sessions")]
 struct Cli {
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Subcommand)]
@@ -66,7 +66,7 @@ fn read_hook_stdin() -> HookPayload {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    match cli.command {
+    match cli.command.unwrap_or(Command::Browse) {
         Command::Browse => {
             tui::run_browser().await?;
         }
