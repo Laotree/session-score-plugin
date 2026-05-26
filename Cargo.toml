@@ -1,0 +1,12 @@
+[package]
+name = "session-score-plugin"
+version = "0.1.0"
+edition = "2021"
+description = "TODO: describe your project"
+license = "MIT"
+
+[[bin]]
+name = "session-score-plugin"
+path = "src/main.rs"
+
+[dependencies]
