@@ -366,7 +366,7 @@ fn render_score_detail(f: &mut Frame, area: Rect, session: &Session, score: &Sco
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(10), // score card
+            Constraint::Length(13), // score card (was 10, needs more height for 7 dimension bars)
             Constraint::Min(0),     // text details
         ])
         .split(area);
@@ -410,10 +410,13 @@ fn render_score_detail(f: &mut Frame, area: Rect, session: &Session, score: &Sco
 
     // Dimension bars
     let dim_text = vec![
-        bar_line("🔒 Security   ", score.dimensions.security, 25),
-        bar_line("⚡ Effectivity", score.dimensions.effectivity, 25),
-        bar_line("🏗  Solidity   ", score.dimensions.solidity, 25),
-        bar_line("💡 Efficiency ", score.dimensions.efficiency, 25),
+        bar_line("🔒 Security      ", score.dimensions.security, 15),
+        bar_line("⚡ Effectivity   ", score.dimensions.effectivity, 15),
+        bar_line("🏗  Solidity      ", score.dimensions.solidity, 10),
+        bar_line("💡 Efficiency    ", score.dimensions.efficiency, 15),
+        bar_line("🗺  Planning      ", score.dimensions.planning_quality, 15),
+        bar_line("🔄 Recovery      ", score.dimensions.recovery_ability, 15),
+        bar_line("🎯 Hallucination ", score.dimensions.hallucination_rate, 15),
     ];
 
     let dims_widget = Paragraph::new(dim_text)

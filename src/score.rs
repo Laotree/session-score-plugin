@@ -16,10 +16,13 @@ pub struct Dimensions {
     /// Token economy: lean tool calls, focused prompts (0–15)
     pub efficiency: u8,
     /// Did Claude plan and clarify before acting? (0–15)
+    #[serde(default)]
     pub planning_quality: u8,
     /// How well did Claude handle failures and errors? (0–15)
+    #[serde(default)]
     pub recovery_ability: u8,
     /// Factual accuracy and grounding — higher = fewer hallucinations (0–15)
+    #[serde(default)]
     pub hallucination_rate: u8,
 }
 
@@ -336,5 +339,33 @@ mod tests {
         let loaded: ScoreResult =
             serde_json::from_str(&std::fs::read_to_string(score_path).unwrap()).unwrap();
         assert_eq!(loaded.total_score, 75);
+    }
+
+    #[test]
+    fn test_legacy_4field_json_deserializes_with_defaults() {
+        // Old .score.json files only have 4 dimensions; new fields should default to 0.
+        let legacy_json = r#"{
+            "session_id": "legacy123",
+            "scored_at": "2024-01-01T00:00:00Z",
+            "total_score": 55,
+            "dimensions": {
+                "security": 12,
+                "effectivity": 13,
+                "solidity": 8,
+                "efficiency": 12
+            },
+            "summary": "Legacy session",
+            "reasoning": "Old format",
+            "observations": []
+        }"#;
+
+        let result: ScoreResult = serde_json::from_str(legacy_json)
+            .expect("legacy 4-field JSON should deserialize successfully");
+
+        assert_eq!(result.dimensions.planning_quality, 0);
+        assert_eq!(result.dimensions.recovery_ability, 0);
+        assert_eq!(result.dimensions.hallucination_rate, 0);
+        assert_eq!(result.dimensions.security, 12);
+        assert_eq!(result.dimensions.effectivity, 13);
     }
 }
