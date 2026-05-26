@@ -6,11 +6,14 @@
 
 - **Auto-scoring on session end** — a `Stop` hook fires when Claude Code finishes; it reads the session ID from the hook payload, fetches the transcript, and scores it
 - **Heuristic fallback** — if `ANTHROPIC_API_KEY` is not set, a built-in rule-based scorer runs instead (no API key required)
-- **1–100 score** across four AI-evaluated dimensions:
-  - 🔒 **Security** (0–25) — dangerous commands, credential exposure, risky patterns
-  - ⚡ **Effectivity** (0–25) — goal completion, correction loops, clarity
-  - 🏗  **Solidity** (0–25) — tests, code quality, PR discipline
-  - 💡 **Efficiency** (0–25) — token economy, focused tool calls
+- **1–100 score** across seven AI-evaluated dimensions:
+  - 🔒 **Security** (0–15) — dangerous commands, credential exposure, risky patterns
+  - ⚡ **Effectivity** (0–15) — goal completion, correction loops, human intervention rate, self-correction
+  - 🏗 **Solidity** (0–10) — tests, code quality, PR discipline
+  - 💡 **Efficiency** (0–15) — token economy, cost efficiency, minimal action steps
+  - 🗺 **Planning Quality** (0–15) — clarification before action, structured approach, plan mode usage
+  - 🔄 **Recovery Ability** (0–15) — error handling, failure recovery, adaptive strategy
+  - 🎯 **Hallucination Rate** (0–15) — factual accuracy, grounded assertions, no confabulation
 - **Animated count-up reveal** — score dramatically counts up from 1 to the final value in terminal
 - **Sidecar storage** — scores saved as `<session-id>.score.json` next to each JSONL file
 - **Interactive TUI browser** — arrow-key navigable, paginated session list with live scores
