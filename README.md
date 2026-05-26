@@ -17,29 +17,19 @@
 
 ## Installation
 
-### 1. Build
-
 ```bash
-make release
+make install
 ```
 
-The binary lands at `target/release/session-score-plugin`.
+This builds the release binary, copies it to `~/.local/bin/`, and registers the `Stop` hook in `~/.claude/settings.json` so every session is auto-scored when it ends.
 
-### 2. Set your Anthropic API key
+Optionally, set your Anthropic API key for AI-powered scoring (the heuristic fallback works without one):
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 Add this to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.) to persist it.
-
-### 3. Install the Stop hook
-
-```bash
-./target/release/session-score-plugin install
-```
-
-This writes a `Stop` hook into `~/.claude/settings.json` that auto-scores each session when it ends.
 
 ## Usage
 

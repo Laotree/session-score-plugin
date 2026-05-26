@@ -7,6 +7,7 @@ abc-scaffold provides the Amy/Bob/Con agent team for any project. The workflow b
 ```bash
 make build       # debug build
 make release     # release build
+make install     # release build + copy binary to ~/.local/bin + register Stop hook
 make test        # run tests
 make lint        # clippy
 make fmt         # format source

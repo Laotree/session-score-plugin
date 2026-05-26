@@ -1,4 +1,4 @@
-.PHONY: build release test lint fmt clean hooks
+.PHONY: build release test lint fmt clean hooks install
 
 build:
 	cargo build
@@ -23,3 +23,8 @@ hooks:
 	chmod +x .git/hooks/pre-commit
 	cp hooks/pre-push .git/hooks/pre-push
 	chmod +x .git/hooks/pre-push
+
+install: release
+	mkdir -p ~/.local/bin
+	cp target/release/session-score-plugin ~/.local/bin/session-score-plugin
+	~/.local/bin/session-score-plugin install
