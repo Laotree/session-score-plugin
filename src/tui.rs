@@ -387,13 +387,18 @@ pub async fn run_browser() -> Result<()> {
                         state.detail_view = false;
                     }
                     KeyCode::Enter => {
-                        // Only score when there is no result yet.  If a score
-                        // already exists, Enter is a no-op so that rapid/repeated
-                        // presses never re-trigger the API call and corrupt TUI
-                        // state.  Use 'r' from the list view to force a re-score.
+                        // Enter is idempotent: only scores when no result exists yet.
+                        // Rapid/repeated presses are safe — they never re-trigger the
+                        // API call and corrupt TUI state.
                         if state.selected_score().is_none() {
                             trigger_score(&mut terminal, &mut state).await?;
                         }
+                    }
+                    KeyCode::Char('r') => {
+                        // Explicit re-score from detail view.  trigger_score detects
+                        // that a score already exists and skips the animation, so the
+                        // view stays stable and simply refreshes with the new result.
+                        trigger_score(&mut terminal, &mut state).await?;
                     }
                     _ => {}
                 }
@@ -444,20 +449,27 @@ async fn trigger_score(
     state.status = "⏳ Scoring with Claude API…".to_string();
     terminal.draw(|f| render(f, state))?;
 
+    // Remember whether this is a first-time score or a re-score.
+    // Only first-time scoring gets the celebration animation; re-scoring
+    // silently updates the result so the view stays stable.
+    let is_rescore = state.scores[idx].is_some();
+
     let session = &state.sessions[idx];
     match crate::score::score_session(session).await {
         Ok(result) => {
             result.save(&session.jsonl_path)?;
-            state.status = format!(
-                "✅ Scored: {}/100 — press d to view detail",
-                result.total_score
-            );
-            // Start animation before entering detail view
-            let area = terminal.size()?;
-            let anim = AnimationState::new(result.total_score, area.width, area.height);
-            state.animation = Some(anim);
+            if is_rescore {
+                state.status = format!("✅ Re-scored: {}/100", result.total_score);
+                // Stay in current view; detail will redraw with new score automatically.
+            } else {
+                state.status = format!("✅ Scored: {}/100", result.total_score);
+                // First-time score: play the celebration animation, then enter detail.
+                let area = terminal.size()?;
+                let anim = AnimationState::new(result.total_score, area.width, area.height);
+                state.animation = Some(anim);
+                // detail_view will be set to true when animation finishes
+            }
             state.scores[idx] = Some(result);
-            // detail_view will be set true when animation finishes
         }
         Err(e) => {
             state.status = format!("❌ Scoring failed: {e}");
@@ -648,7 +660,7 @@ fn render_detail(f: &mut Frame, area: Rect, state: &AppState) {
             Style::default().bold().fg(Color::Cyan),
         ),
         Span::styled(
-            " (b/Esc: back  Enter: score if unscored  r: re-score) ",
+            " (b/Esc: back  Enter: score  r: re-score) ",
             Style::default().fg(Color::DarkGray),
         ),
     ]))
