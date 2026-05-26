@@ -20,6 +20,139 @@ use crate::score::ScoreResult;
 use crate::session::{discover_all_sessions, Session};
 
 const PAGE_SIZE: usize = 15;
+const ANIMATION_TOTAL_FRAMES: usize = 20; // 20 × 50ms = 1 s
+const ANIMATION_POLL_MS: u64 = 50;
+
+#[derive(Clone)]
+struct Particle {
+    x: f64,   // 0.0..1.0 (fraction of terminal width)
+    y: f64,   // 0.0..1.0 (fraction of terminal height)
+    ch: char,
+    color: Color,
+    dx: f64, // velocity per frame (for fireworks)
+    dy: f64,
+}
+
+struct AnimationState {
+    frame: usize,
+    particles: Vec<Particle>,
+    is_fireworks: bool, // true = fireworks, false = rain
+}
+
+impl AnimationState {
+    fn new_fireworks(score: u8, width: u16, height: u16) -> Self {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let fw_chars = ['✦', '*', '·', '°', '+', '×', '✶', '✸'];
+        let fw_colors = [
+            Color::Red,
+            Color::Yellow,
+            Color::Green,
+            Color::Cyan,
+            Color::Magenta,
+            Color::LightYellow,
+            Color::LightGreen,
+            Color::LightCyan,
+        ];
+
+        // Use score as seed for deterministic-ish but varied layout
+        let mut hasher = DefaultHasher::new();
+        score.hash(&mut hasher);
+        let seed = hasher.finish();
+
+        let w = width.max(20) as f64;
+        let h = height.max(10) as f64;
+
+        // 5 burst centers
+        let centers: Vec<(f64, f64)> = (0..5)
+            .map(|i| {
+                let s = seed
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(i as u64 * 1442695040888963407);
+                let cx = 0.15 + (s & 0xFF) as f64 / 255.0 * 0.70;
+                let cy = 0.15 + ((s >> 8) & 0xFF) as f64 / 255.0 * 0.70;
+                (cx, cy)
+            })
+            .collect();
+
+        let mut particles = Vec::new();
+        for (ci, &(cx, cy)) in centers.iter().enumerate() {
+            for j in 0..20usize {
+                let s = seed
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add((ci * 100 + j) as u64 * 1442695040888963407);
+
+                let angle = (s & 0xFF) as f64 / 255.0 * std::f64::consts::TAU;
+                let speed = 0.005 + ((s >> 8) & 0x3F) as f64 / 0x3F as f64 * 0.015;
+                // Compensate for terminal character aspect ratio (chars are ~2× taller than wide)
+                let dx = angle.cos() * speed;
+                let dy = angle.sin() * speed * (w / h) * 0.5;
+
+                particles.push(Particle {
+                    x: cx,
+                    y: cy,
+                    ch: fw_chars[(s >> 16) as usize % fw_chars.len()],
+                    color: fw_colors[(s >> 24) as usize % fw_colors.len()],
+                    dx,
+                    dy,
+                });
+            }
+        }
+
+        AnimationState {
+            frame: 0,
+            particles,
+            is_fireworks: true,
+        }
+    }
+
+    fn new_rain(width: u16, _height: u16) -> Self {
+        let rain_chars = ['│', '|', '\'', '.', '╎'];
+        let rain_colors = [Color::Blue, Color::Cyan, Color::DarkGray, Color::LightBlue];
+
+        let w = width.max(20) as usize;
+        // One raindrop column per 2 terminal columns
+        let n = w / 2;
+
+        let particles: Vec<Particle> = (0..n)
+            .map(|i| {
+                // simple LCG per column
+                let s = (i as u64).wrapping_mul(2654435761).wrapping_add(0xDEADBEEF);
+                Particle {
+                    x: i as f64 / n as f64,
+                    y: -((s & 0xFF) as f64 / 255.0), // start above screen
+                    ch: rain_chars[(s >> 8) as usize % rain_chars.len()],
+                    color: rain_colors[(s >> 16) as usize % rain_colors.len()],
+                    dx: 0.0,
+                    dy: 0.008 + ((s >> 24) & 0x3F) as f64 / 0x3F as f64 * 0.012,
+                }
+            })
+            .collect();
+
+        AnimationState {
+            frame: 0,
+            particles,
+            is_fireworks: false,
+        }
+    }
+
+    fn advance(&mut self) {
+        self.frame += 1;
+        for p in &mut self.particles {
+            p.x += p.dx;
+            p.y += p.dy;
+            // Rain: wrap around when fallen off bottom
+            if !self.is_fireworks && p.y > 1.0 {
+                p.y = -0.05;
+            }
+        }
+    }
+
+    fn done(&self) -> bool {
+        self.frame >= ANIMATION_TOTAL_FRAMES
+    }
+}
 
 struct AppState {
     sessions: Vec<Session>,
@@ -30,6 +163,7 @@ struct AppState {
     status: String,
     detail_view: bool,
     scoring: bool,
+    animation: Option<AnimationState>,
 }
 
 impl AppState {
@@ -50,6 +184,7 @@ impl AppState {
             status: "↑/↓ navigate  Enter: score/detail  n/p: page  q: quit".to_string(),
             detail_view: false,
             scoring: false,
+            animation: None,
         }
     }
 
@@ -81,7 +216,9 @@ impl AppState {
 
     fn next(&mut self) {
         let len = self.page_sessions().len();
-        if len == 0 { return; }
+        if len == 0 {
+            return;
+        }
         let i = self.list_state.selected().unwrap_or(0);
         self.list_state.select(Some((i + 1).min(len - 1)));
     }
@@ -125,13 +262,28 @@ pub async fn run_browser() -> Result<()> {
     loop {
         terminal.draw(|f| render(f, &mut state))?;
 
-        if !event::poll(std::time::Duration::from_millis(200))? {
+        // Advance animation each frame
+        if let Some(ref mut anim) = state.animation {
+            anim.advance();
+            if anim.done() {
+                state.animation = None;
+                state.detail_view = true;
+            }
+        }
+
+        let poll_ms = if state.animation.is_some() {
+            ANIMATION_POLL_MS
+        } else {
+            200
+        };
+
+        if !event::poll(std::time::Duration::from_millis(poll_ms))? {
             continue;
         }
 
         if let Event::Key(key) = event::read()? {
-            if state.scoring {
-                continue; // ignore input while scoring
+            if state.scoring || state.animation.is_some() {
+                continue; // ignore input during scoring or animation
             }
 
             if state.detail_view {
@@ -200,8 +352,16 @@ async fn trigger_score(
                 "✅ Scored: {}/100 — press d to view detail",
                 result.total_score
             );
+            // Start animation before entering detail view
+            let area = terminal.size()?;
+            let anim = if result.total_score >= 70 {
+                AnimationState::new_fireworks(result.total_score, area.width, area.height)
+            } else {
+                AnimationState::new_rain(area.width, area.height)
+            };
+            state.animation = Some(anim);
             state.scores[idx] = Some(result);
-            state.detail_view = true;
+            // detail_view will be set true when animation finishes
         }
         Err(e) => {
             state.status = format!("❌ Scoring failed: {e}");
@@ -216,6 +376,12 @@ async fn trigger_score(
 fn render(f: &mut Frame, state: &mut AppState) {
     let area = f.area();
 
+    if let Some(anim) = state.animation.take() {
+        render_animation(f, area, state, &anim);
+        state.animation = Some(anim); // put it back
+        return;
+    }
+
     if state.detail_view {
         render_detail(f, area, state);
     } else {
@@ -223,19 +389,45 @@ fn render(f: &mut Frame, state: &mut AppState) {
     }
 }
 
+fn render_animation(f: &mut Frame, area: Rect, state: &mut AppState, anim: &AnimationState) {
+    // 1. Render the underlying TUI first (so background is visible)
+    if state.detail_view {
+        render_detail(f, area, state);
+    } else {
+        render_list(f, area, state);
+    }
+
+    // 2. Overlay only the particle characters on top
+    let w = area.width as f64;
+    let h = area.height as f64;
+    let buf = f.buffer_mut();
+
+    for p in &anim.particles {
+        let col = (p.x * w) as u16;
+        let row = (p.y * h) as u16;
+        if col < area.width && row < area.height {
+            let cell = buf[(area.x + col, area.y + row)].set_char(p.ch);
+            cell.set_fg(p.color);
+        }
+    }
+}
+
 fn render_list(f: &mut Frame, area: Rect, state: &mut AppState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // title
-            Constraint::Min(0),     // list
-            Constraint::Length(3),  // status bar
+            Constraint::Length(3), // title
+            Constraint::Min(0),    // list
+            Constraint::Length(3), // status bar
         ])
         .split(area);
 
     // Title
     let title = Paragraph::new(Line::from(vec![
-        Span::styled(" 📊 Session Score Browser ", Style::default().bold().fg(Color::Cyan)),
+        Span::styled(
+            " 📊 Session Score Browser ",
+            Style::default().bold().fg(Color::Cyan),
+        ),
         Span::styled(
             format!(
                 "  Page {}/{} — {} sessions",
@@ -267,7 +459,8 @@ fn render_list(f: &mut Frame, area: Rect, state: &mut AppState) {
                 .unwrap_or_else(|| "??-?? ??:??".to_string());
 
             let id_short = &session.session_id[..8];
-            let project = session.project_slug
+            let project = session
+                .project_slug
                 .trim_start_matches("-Users-")
                 .split('-')
                 .next_back()
@@ -275,7 +468,15 @@ fn render_list(f: &mut Frame, area: Rect, state: &mut AppState) {
 
             let (score_str, score_style) = match score {
                 Some(s) => (
-                    format!("{:>3}/100 {}", s.total_score, score_grade(s.total_score).split('—').next().unwrap_or("").trim()),
+                    format!(
+                        "{:>3}/100 {}",
+                        s.total_score,
+                        score_grade(s.total_score)
+                            .split('—')
+                            .next()
+                            .unwrap_or("")
+                            .trim()
+                    ),
                     score_color(s.total_score),
                 ),
                 None => ("  —/100".to_string(), Style::default().fg(Color::DarkGray)),
@@ -286,7 +487,10 @@ fn render_list(f: &mut Frame, area: Rect, state: &mut AppState) {
             let line = Line::from(vec![
                 Span::styled(format!(" {date_str} "), Style::default().fg(Color::Blue)),
                 Span::styled(format!("{id_short} "), Style::default().fg(Color::DarkGray)),
-                Span::styled(format!("{project:<20} "), Style::default().fg(Color::White)),
+                Span::styled(
+                    format!("{project:<20} "),
+                    Style::default().fg(Color::White),
+                ),
                 Span::styled(format!("{msgs} "), Style::default().fg(Color::DarkGray)),
                 Span::styled(score_str, score_style.bold()),
             ]);
@@ -329,8 +533,14 @@ fn render_detail(f: &mut Frame, area: Rect, state: &AppState) {
 
     // Header
     let title = Paragraph::new(Line::from(vec![
-        Span::styled(" 📊 Session Detail ", Style::default().bold().fg(Color::Cyan)),
-        Span::styled(" (b/Esc: back, Enter: re-score) ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            " 📊 Session Detail ",
+            Style::default().bold().fg(Color::Cyan),
+        ),
+        Span::styled(
+            " (b/Esc: back, Enter: re-score) ",
+            Style::default().fg(Color::DarkGray),
+        ),
     ]))
     .block(Block::default().borders(Borders::ALL));
     f.render_widget(title, chunks[0]);
@@ -347,8 +557,7 @@ fn render_detail(f: &mut Frame, area: Rect, state: &AppState) {
     } else {
         let msg = Paragraph::new(format!(
             "\n  Session: {}\n  Project: {}\n\n  ⚠  Not yet scored. Press Enter to score now.",
-            session.session_id,
-            session.project_slug
+            session.session_id, session.project_slug
         ))
         .block(Block::default().borders(Borders::ALL))
         .style(Style::default().fg(Color::Yellow));
@@ -374,10 +583,7 @@ fn render_score_detail(f: &mut Frame, area: Rect, session: &Session, score: &Sco
     // Score card
     let score_card = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(50),
-            Constraint::Percentage(50),
-        ])
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(chunks[0]);
 
     // Total + dimensions
@@ -463,10 +669,10 @@ fn bar_line(label: &str, score: u8, max: u8) -> Line<'static> {
 fn score_color(score: u8) -> Style {
     match score {
         90..=100 => Style::default().fg(Color::LightMagenta),
-        80..=89  => Style::default().fg(Color::LightGreen),
-        70..=79  => Style::default().fg(Color::Green),
-        60..=69  => Style::default().fg(Color::Yellow),
-        50..=59  => Style::default().fg(Color::LightYellow),
-        _         => Style::default().fg(Color::Red),
+        80..=89 => Style::default().fg(Color::LightGreen),
+        70..=79 => Style::default().fg(Color::Green),
+        60..=69 => Style::default().fg(Color::Yellow),
+        50..=59 => Style::default().fg(Color::LightYellow),
+        _ => Style::default().fg(Color::Red),
     }
 }
