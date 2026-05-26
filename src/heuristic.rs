@@ -539,10 +539,43 @@ fn build_narrative(
     s: &Signals,
     d: &Dimensions,
 ) -> (String, String, Vec<String>) {
-    let summary = format!(
-        "Heuristic score (no API key). Session: {} user turns, {} tool calls, {} code edits.",
-        s.user_turns, s.total_tool_calls, s.code_edits
-    );
+    // Build a one-sentence summary that describes what actually happened in
+    // this session rather than repeating the scoring method.
+    let summary = {
+        let mut highlights: Vec<String> = Vec::new();
+
+        // Lead with the most distinctive activity
+        if s.plan_mode_used {
+            highlights.push("Plan mode".to_string());
+        }
+        if s.pr_created {
+            highlights.push("PR created".to_string());
+        } else if s.git_commits > 0 {
+            highlights.push(format!("{} commit(s)", s.git_commits));
+        }
+        if s.test_file_edits > 0 {
+            highlights.push(format!("{} test file(s) edited", s.test_file_edits));
+        }
+
+        // Core activity
+        if s.code_edits > 0 {
+            highlights.push(format!("{} code edit(s)", s.code_edits));
+        }
+        highlights.push(format!("{} tool call(s)", s.total_tool_calls));
+
+        // Notable issues
+        if s.correction_turns > 0 {
+            highlights.push(format!("{} correction turn(s)", s.correction_turns));
+        }
+        if !s.risky_command_hits.is_empty() {
+            highlights.push("risky commands detected".to_string());
+        }
+        if s.credential_leaks > 0 {
+            highlights.push("credential leak risk".to_string());
+        }
+
+        highlights.join(", ") + "."
+    };
 
     let mut reasoning_parts = Vec::new();
 
@@ -823,6 +856,7 @@ mod tests {
 
         let result = score_heuristic(&session).unwrap();
         assert!(result.total_score > 0);
-        assert!(result.summary.contains("Heuristic"));
+        // Summary should describe session activity (tool calls are always present)
+        assert!(result.summary.contains("tool call"));
     }
 }
