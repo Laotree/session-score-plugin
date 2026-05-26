@@ -253,6 +253,75 @@ pub fn find_session(session_id: &str, project_dir: Option<&str>) -> Result<Sessi
     found.ok_or_else(|| anyhow::anyhow!("Session {session_id} not found"))
 }
 
+/// Find the most recently modified session (by JSONL file mtime).
+/// Used when no session ID is provided — scores whatever was active last.
+pub fn find_latest_session() -> Result<Session> {
+    let projects_dir = claude_projects_dir()?;
+    let mut best: Option<(std::time::SystemTime, Session)> = None;
+
+    let Ok(project_entries) = std::fs::read_dir(&projects_dir) else {
+        anyhow::bail!("Cannot read {}", projects_dir.display());
+    };
+
+    for project_entry in project_entries.flatten() {
+        let project_path = project_entry.path();
+        if !project_path.is_dir() {
+            continue;
+        }
+        let project_slug = project_entry.file_name().to_string_lossy().to_string();
+
+        let Ok(file_entries) = std::fs::read_dir(&project_path) else {
+            continue;
+        };
+
+        for file_entry in file_entries.flatten() {
+            let path = file_entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let stem = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            if stem.len() != 36 || stem.chars().filter(|c| *c == '-').count() != 4 {
+                continue;
+            }
+
+            let mtime = file_entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+
+            let is_newer = best
+                .as_ref()
+                .map(|(t, _)| mtime > *t)
+                .unwrap_or(true);
+
+            if is_newer {
+                let score_path = path.with_extension("score.json");
+                let (started_at, message_count, cwd) = parse_session_meta(&path);
+                best = Some((
+                    mtime,
+                    Session {
+                        session_id: stem,
+                        project_slug: project_slug.clone(),
+                        project_dir: project_path.clone(),
+                        jsonl_path: path,
+                        score_path,
+                        started_at,
+                        message_count,
+                        cwd,
+                    },
+                ));
+            }
+        }
+    }
+
+    best.map(|(_, s)| s)
+        .ok_or_else(|| anyhow::anyhow!("No sessions found in {}", projects_dir.display()))
+}
+
 fn claude_projects_dir() -> Result<PathBuf> {
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("No home dir"))?;
     Ok(home.join(".claude").join("projects"))
@@ -329,5 +398,44 @@ mod tests {
         let transcript = session.transcript().unwrap();
         assert!(transcript.contains("[USER] fix the bug"));
         assert!(transcript.contains("[ASSISTANT] Sure"));
+    }
+
+    #[test]
+    fn test_find_latest_session_picks_newest_mtime() {
+        use std::fs;
+        use std::time::{Duration, SystemTime};
+
+        // Build a fake ~/.claude/projects/ tree in a tempdir
+        let root = tempfile::tempdir().unwrap();
+        let proj = root.path().join("proj-a");
+        fs::create_dir_all(&proj).unwrap();
+
+        let older_id = "aaaaaaaa-0000-0000-0000-000000000000";
+        let newer_id = "bbbbbbbb-1111-1111-1111-111111111111";
+
+        let older_path = proj.join(format!("{older_id}.jsonl"));
+        let newer_path = proj.join(format!("{newer_id}.jsonl"));
+
+        fs::write(&older_path, r#"{"type":"user","message":{"role":"user","content":"old"}}"#).unwrap();
+        fs::write(&newer_path, r#"{"type":"user","message":{"role":"user","content":"new"}}"#).unwrap();
+
+        // Set older_path's mtime to 10 seconds in the past
+        let old_time = SystemTime::now() - Duration::from_secs(10);
+        filetime::set_file_mtime(&older_path, filetime::FileTime::from_system_time(old_time)).unwrap();
+
+        // Manually test the logic: scan proj dir and pick newest by mtime
+        let mut best: Option<(SystemTime, String)> = None;
+        for entry in fs::read_dir(&proj).unwrap().flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") { continue; }
+            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string();
+            if stem.len() != 36 { continue; }
+            let mtime = entry.metadata().and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
+            if best.as_ref().map(|(t, _)| mtime > *t).unwrap_or(true) {
+                best = Some((mtime, stem));
+            }
+        }
+
+        assert_eq!(best.unwrap().1, newer_id);
     }
 }

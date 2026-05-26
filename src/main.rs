@@ -49,8 +49,7 @@ async fn main() -> Result<()> {
             project_dir,
         } => {
             let session_id = session_id
-                .or_else(|| std::env::var("CLAUDE_SESSION_ID").ok())
-                .ok_or_else(|| anyhow::anyhow!("No session ID provided"))?;
+                .or_else(|| std::env::var("CLAUDE_SESSION_ID").ok());
 
             let project_dir = project_dir
                 .or_else(|| std::env::var("CLAUDE_PROJECT_DIR").ok());
@@ -65,14 +64,21 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn auto_score(session_id: String, project_dir: Option<String>) -> Result<()> {
-    use crate::session::find_session;
+async fn auto_score(session_id: Option<String>, project_dir: Option<String>) -> Result<()> {
+    use crate::session::{find_session, find_latest_session};
     use crate::score::score_session;
     use crate::animation::animate_score_reveal;
 
     println!("\n🎯 Session Score Plugin — scoring your session…\n");
 
-    let session = find_session(&session_id, project_dir.as_deref())?;
+    let session = match session_id {
+        Some(id) => find_session(&id, project_dir.as_deref())?,
+        None => {
+            let s = find_latest_session()?;
+            eprintln!("ℹ️  No session ID — scoring most recent: {} ({})", s.session_id, s.project_slug);
+            s
+        }
+    };
     let result = score_session(&session).await?;
 
     animate_score_reveal(&result).await?;
